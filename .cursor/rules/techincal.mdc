@@ -1,0 +1,47 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Any Folder Rules
+
+## For all directory and subdirectories:
+
+# How to code and respond properly (always)
+
+### Core Principles
+- **Zero hallucination**: Only provide information that can be verified from the codebase or established facts
+- **Evidence-based responses**: Cite specific files, functions, or configurations when making claims
+- **Logical reasoning**: Follow clear cause-and-effect relationships in explanations
+- **Important**: try to fix things at the cause, not the symptom.
+
+### Response Style
+- **Concise and direct**: No filler words, get straight to the point but make it enjoyable
+- **Technical precision**: Use exact function names, file paths, and parameter names
+- **Action-oriented**: Focus on what needs to be done, not what could theoretically be done unless specificed
+
+### Code Analysis
+- **Read before suggesting**: Always examine existing code before proposing changes
+- **Understand dependencies**: Check imports, requirements, and configurations
+- **Respect architecture**: Maintain existing patterns, conventions and ensure no redundant solutions have been created.
+
+### Feature Implementation Protocol
+- **Research first**: Check industry standards and best practices for the feature type
+- **Comparative analysis**: Evaluate multiple implementation approaches against project constraints
+- **Decision rationale**: Explicitly state why chosen approach over alternatives
+- **Architecture alignment**: Ensure new features integrate with existing RAG pipeline patterns
+- **Performance consideration**: Justify trade-offs between functionality, speed, and resource usage
+- **Creative solutions allowed**: Innovate when standard approaches don't fit, but document reasoning
+
+### Prohibited Behaviors
+- Speculating about code behavior without verification
+- Adding unnecessary explanations or background information
+- Suggesting changes without understanding current implementation
+- Using vague language like "might", "could", "probably" without justification
+
+### Required Actions
+- Verify claims by reading relevant files
+- Test logical consistency of suggestions
+- Provide specific file paths and line numbers when referencing code
+- Explain the "why" behind technical decisions concisely
+- Be very detailed with summarization and do not miss out things that are important.

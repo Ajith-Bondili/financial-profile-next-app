@@ -1,0 +1,865 @@
+---
+description: The AI engine provides intelligent financial advisory capabilities through OpenAI integration, offering portfolio analysis, scenario planning, and contextual financial guidance based on client data.
+globs: 
+alwaysApply: false
+---
+# AI Engine Rules - Financial Advisor Assistant
+
+## Overview
+The AI engine provides intelligent financial advisory capabilities through OpenAI integration, offering portfolio analysis, scenario planning, and contextual financial guidance based on client data.
+
+## Core Architecture
+
+### AI Engine Components
+```
+AI Engine (TypeScript)
+├── Core Services
+│   ├── OpenAI Client (lib/ai/openai.ts)
+│   ├── Context Builder (lib/ai/context.ts)
+│   ├── Prompt Templates (lib/ai/prompts.ts)
+│   └── Response Parser (lib/ai/parser.ts)
+├── Financial Intelligence
+│   ├── Portfolio Analyzer (lib/ai/portfolio.ts)
+│   ├── Risk Assessor (lib/ai/risk.ts)
+│   ├── Goal Planner (lib/ai/goals.ts)
+│   └── Market Insights (lib/ai/market.ts)
+├── Chat System
+│   ├── Session Manager (lib/ai/sessions.ts)
+│   ├── Message Handler (lib/ai/messages.ts)
+│   └── History Manager (lib/ai/history.ts)
+└── API Routes
+    ├── /api/ai/chat
+    ├── /api/ai/analyze
+    ├── /api/ai/scenarios
+    └── /api/ai/insights
+```
+
+## TypeScript Types
+
+### AI Types
+```typescript
+// types/ai.ts
+export interface AIMessage {
+  id: string;
+  type: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: string;
+  metadata?: {
+    client_id?: string;
+    session_id?: string;
+    context_used?: string[];
+    tokens_used?: number;
+  };
+}
+
+export interface AISession {
+  id: string;
+  client_id: string;
+  advisor_id: string;
+  created_at: string;
+  updated_at: string;
+  messages: AIMessage[];
+  context_snapshot?: ClientContext;
+}
+
+export interface ClientContext {
+  client: {
+    id: string;
+    name: string;
+    age?: number;
+    risk_tolerance: 'conservative' | 'moderate' | 'aggressive';
+    annual_income?: number;
+    financial_goals?: string[];
+  };
+  portfolio: {
+    total_assets: number;
+    total_liabilities: number;
+    net_worth: number;
+    asset_allocation: AssetAllocation[];
+    monthly_cash_flow: number;
+  };
+  assets: Asset[];
+  recent_changes?: {
+    field: string;
+    old_value: any;
+    new_value: any;
+    timestamp: string;
+  }[];
+}
+
+export interface AssetAllocation {
+  category: string;
+  value: number;
+  percentage: number;
+  risk_level: 'low' | 'medium' | 'high';
+}
+
+export interface AIInsight {
+  type: 'recommendation' | 'warning' | 'opportunity' | 'analysis';
+  title: string;
+  description: string;
+  priority: 'low' | 'medium' | 'high';
+  actionable: boolean;
+  supporting_data?: any;
+}
+
+export interface ScenarioRequest {
+  type: 'goal_planning' | 'market_change' | 'life_event' | 'investment_strategy';
+  parameters: Record<string, any>;
+  timeframe?: string;
+}
+
+export interface ScenarioResult {
+  scenario_name: string;
+  projected_outcome: {
+    net_worth_change: number;
+    probability: number;
+    timeline: string;
+  };
+  recommendations: string[];
+  risks: string[];
+  opportunities: string[];
+}
+```
+
+## Core AI Services
+
+### OpenAI Client Configuration
+```typescript
+// lib/ai/openai.ts
+import OpenAI from 'openai';
+
+class AIClient {
+  private openai: OpenAI;
+  private readonly model = 'gpt-4';
+  
+  constructor() {
+    this.openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+  }
+
+  async generateResponse(
+    messages: OpenAI.Chat.ChatCompletionMessageParam[],
+    options?: {
+      temperature?: number;
+      max_tokens?: number;
+      response_format?: any;
+    }
+  ): Promise<string> {
+    try {
+      const completion = await this.openai.chat.completions.create({
+        model: this.model,
+        messages,
+        temperature: options?.temperature ?? 0.7,
+        max_tokens: options?.max_tokens ?? 800,
+        response_format: options?.response_format,
+      });
+
+      return completion.choices[0]?.message?.content || '';
+    } catch (error) {
+      console.error('OpenAI API error:', error);
+      throw new Error('Failed to generate AI response');
+    }
+  }
+
+  async generateStructuredResponse<T>(
+    messages: OpenAI.Chat.ChatCompletionMessageParam[],
+    schema: any
+  ): Promise<T> {
+    try {
+      const completion = await this.openai.chat.completions.create({
+        model: this.model,
+        messages,
+        response_format: { type: "json_object" },
+        temperature: 0.3,
+      });
+
+      const content = completion.choices[0]?.message?.content;
+      if (!content) throw new Error('No response content');
+
+      return JSON.parse(content) as T;
+    } catch (error) {
+      console.error('Structured response error:', error);
+      throw new Error('Failed to generate structured response');
+    }
+  }
+}
+
+export const aiClient = new AIClient();
+```
+
+### Context Builder
+```typescript
+// lib/ai/context.ts
+import { ClientContext, Asset } from '@/types/ai';
+import { calculatePortfolioTotals } from '@/lib/utils/calculations';
+
+export class ContextBuilder {
+  static async buildClientContext(
+    clientId: string,
+    supabase: any
+  ): Promise<ClientContext> {
+    // Fetch comprehensive client data
+    const { data: client } = await supabase
+      .from('clients')
+      .select(`
+        *,
+        assets (*),
+        income_sources (*),
+        expenses (*),
+        financial_goals (*)
+      `)
+      .eq('id', clientId)
+      .single();
+
+    if (!client) throw new Error('Client not found');
+
+    // Calculate portfolio metrics
+    const portfolioTotals = calculatePortfolioTotals(client.assets || []);
+    
+    // Build asset allocation
+    const assetAllocation = this.calculateAssetAllocation(client.assets || []);
+    
+    // Calculate monthly cash flow
+    const monthlyIncome = client.income_sources?.reduce(
+      (sum: number, income: any) => sum + (income.monthly_amount || 0), 0
+    ) || 0;
+    
+    const monthlyExpenses = client.expenses?.reduce(
+      (sum: number, expense: any) => sum + (expense.monthly_amount || 0), 0
+    ) || 0;
+
+    return {
+      client: {
+        id: client.id,
+        name: client.name,
+        age: client.date_of_birth ? this.calculateAge(client.date_of_birth) : undefined,
+        risk_tolerance: client.risk_tolerance,
+        annual_income: client.annual_income,
+        financial_goals: client.financial_goals?.map((g: any) => g.name) || []
+      },
+      portfolio: {
+        total_assets: portfolioTotals.totalCurrentValue,
+        total_liabilities: 0, // TODO: Add liabilities calculation
+        net_worth: portfolioTotals.totalCurrentValue,
+        asset_allocation: assetAllocation,
+        monthly_cash_flow: monthlyIncome - monthlyExpenses
+      },
+      assets: client.assets || []
+    };
+  }
+
+  private static calculateAssetAllocation(assets: Asset[]) {
+    const totalValue = assets.reduce((sum, asset) => sum + asset.current_value, 0);
+    
+    const allocation = assets.reduce((acc, asset) => {
+      const category = asset.asset_type;
+      if (!acc[category]) {
+        acc[category] = { value: 0, count: 0 };
+      }
+      acc[category].value += asset.current_value;
+      acc[category].count += 1;
+      return acc;
+    }, {} as Record<string, { value: number; count: number }>);
+
+    return Object.entries(allocation).map(([category, data]) => ({
+      category,
+      value: data.value,
+      percentage: totalValue > 0 ? (data.value / totalValue) * 100 : 0,
+      risk_level: this.getCategoryRiskLevel(category)
+    }));
+  }
+
+  private static getCategoryRiskLevel(category: string): 'low' | 'medium' | 'high' {
+    const riskMap: Record<string, 'low' | 'medium' | 'high'> = {
+      'residence': 'medium',
+      'rrsp': 'medium',
+      'tfsa': 'medium',
+      'savings': 'low',
+      'investment': 'high'
+    };
+    return riskMap[category] || 'medium';
+  }
+
+  private static calculateAge(birthDate: string): number {
+    const today = new Date();
+    const birth = new Date(birthDate);
+    let age = today.getFullYear() - birth.getFullYear();
+    const monthDiff = today.getMonth() - birth.getMonth();
+    
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+      age--;
+    }
+    
+    return age;
+  }
+}
+```
+
+## Prompt Templates
+
+### System Prompts
+```typescript
+// lib/ai/prompts.ts
+export class PromptTemplates {
+  static readonly FINANCIAL_ADVISOR_SYSTEM = `You are an expert financial advisor AI assistant with deep expertise in personal finance, investment planning, and risk management.
+
+Your role:
+- Provide personalized financial advice based on client data
+- Analyze portfolios and suggest improvements
+- Help with goal planning and scenario analysis
+- Explain complex financial concepts clearly
+- Always consider the client's risk tolerance and life situation
+
+Guidelines:
+- Use specific numbers from the client's profile when relevant
+- Provide actionable recommendations
+- Consider tax implications (Canadian context)
+- Be conversational but professional
+- Explain your reasoning clearly
+- Highlight both opportunities and risks`;
+
+  static readonly PORTFOLIO_ANALYSIS = `Analyze the following portfolio and provide insights:
+
+Client Context: {context}
+
+Focus on:
+1. Asset allocation appropriateness for risk tolerance
+2. Diversification opportunities
+3. Growth potential vs risk balance
+4. Liquidity considerations
+5. Tax optimization opportunities
+
+Provide specific, actionable recommendations.`;
+
+  static readonly SCENARIO_PLANNING = `Help plan for the following financial scenario:
+
+Scenario: {scenario_type}
+Parameters: {parameters}
+Current Situation: {context}
+
+Provide:
+1. Projected financial impact
+2. Timeline for achieving goals
+3. Recommended actions
+4. Potential risks and mitigation strategies
+5. Alternative approaches to consider`;
+
+  static readonly GOAL_ASSESSMENT = `Assess the feasibility of this financial goal:
+
+Goal: {goal}
+Target Amount: {target_amount}
+Timeline: {timeline}
+Current Situation: {context}
+
+Analyze:
+1. Feasibility given current savings rate
+2. Required monthly contributions
+3. Investment strategy recommendations
+4. Potential obstacles and solutions
+5. Milestone checkpoints`;
+
+  static buildPrompt(template: string, variables: Record<string, any>): string {
+    let prompt = template;
+    
+    Object.entries(variables).forEach(([key, value]) => {
+      const placeholder = `{${key}}`;
+      const replacement = typeof value === 'object' 
+        ? JSON.stringify(value, null, 2)
+        : String(value);
+      prompt = prompt.replace(new RegExp(placeholder, 'g'), replacement);
+    });
+    
+    return prompt;
+  }
+}
+```
+
+## Specialized AI Services
+
+### Portfolio Analyzer
+```typescript
+// lib/ai/portfolio.ts
+import { aiClient } from './openai';
+import { PromptTemplates } from './prompts';
+import { ClientContext, AIInsight } from '@/types/ai';
+
+export class PortfolioAnalyzer {
+  static async analyzePortfolio(context: ClientContext): Promise<AIInsight[]> {
+    const prompt = PromptTemplates.buildPrompt(
+      PromptTemplates.PORTFOLIO_ANALYSIS,
+      { context }
+    );
+
+    const messages = [
+      { role: 'system' as const, content: PromptTemplates.FINANCIAL_ADVISOR_SYSTEM },
+      { role: 'user' as const, content: prompt }
+    ];
+
+    try {
+      const response = await aiClient.generateStructuredResponse<{
+        insights: AIInsight[]
+      }>(messages, {
+        type: "object",
+        properties: {
+          insights: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                type: { type: "string", enum: ["recommendation", "warning", "opportunity", "analysis"] },
+                title: { type: "string" },
+                description: { type: "string" },
+                priority: { type: "string", enum: ["low", "medium", "high"] },
+                actionable: { type: "boolean" }
+              },
+              required: ["type", "title", "description", "priority", "actionable"]
+            }
+          }
+        },
+        required: ["insights"]
+      });
+
+      return response.insights;
+    } catch (error) {
+      console.error('Portfolio analysis error:', error);
+      return [];
+    }
+  }
+
+  static async suggestRebalancing(context: ClientContext): Promise<{
+    current_allocation: any;
+    recommended_allocation: any;
+    reasoning: string;
+  }> {
+    // Implementation for portfolio rebalancing suggestions
+    const prompt = `Given this portfolio, suggest an optimal rebalancing strategy:
+    ${JSON.stringify(context.portfolio, null, 2)}
+    
+    Consider the client's risk tolerance: ${context.client.risk_tolerance}
+    
+    Provide current vs recommended allocation with reasoning.`;
+
+    const messages = [
+      { role: 'system' as const, content: PromptTemplates.FINANCIAL_ADVISOR_SYSTEM },
+      { role: 'user' as const, content: prompt }
+    ];
+
+    const response = await aiClient.generateStructuredResponse(messages, {
+      type: "object",
+      properties: {
+        current_allocation: { type: "object" },
+        recommended_allocation: { type: "object" },
+        reasoning: { type: "string" }
+      }
+    });
+
+    return response;
+  }
+}
+```
+
+### Scenario Planner
+```typescript
+// lib/ai/scenarios.ts
+import { aiClient } from './openai';
+import { PromptTemplates } from './prompts';
+import { ClientContext, ScenarioRequest, ScenarioResult } from '@/types/ai';
+
+export class ScenarioPlanner {
+  static async planScenario(
+    context: ClientContext,
+    scenario: ScenarioRequest
+  ): Promise<ScenarioResult> {
+    const prompt = PromptTemplates.buildPrompt(
+      PromptTemplates.SCENARIO_PLANNING,
+      {
+        scenario_type: scenario.type,
+        parameters: scenario.parameters,
+        context
+      }
+    );
+
+    const messages = [
+      { role: 'system' as const, content: PromptTemplates.FINANCIAL_ADVISOR_SYSTEM },
+      { role: 'user' as const, content: prompt }
+    ];
+
+    const response = await aiClient.generateStructuredResponse<ScenarioResult>(
+      messages,
+      {
+        type: "object",
+        properties: {
+          scenario_name: { type: "string" },
+          projected_outcome: {
+            type: "object",
+            properties: {
+              net_worth_change: { type: "number" },
+              probability: { type: "number" },
+              timeline: { type: "string" }
+            }
+          },
+          recommendations: { type: "array", items: { type: "string" } },
+          risks: { type: "array", items: { type: "string" } },
+          opportunities: { type: "array", items: { type: "string" } }
+        }
+      }
+    );
+
+    return response;
+  }
+
+  static async assessGoalFeasibility(
+    context: ClientContext,
+    goal: {
+      name: string;
+      target_amount: number;
+      timeline: string;
+    }
+  ): Promise<{
+    feasible: boolean;
+    required_monthly_savings: number;
+    recommendations: string[];
+    timeline_adjustment?: string;
+  }> {
+    const prompt = PromptTemplates.buildPrompt(
+      PromptTemplates.GOAL_ASSESSMENT,
+      {
+        goal: goal.name,
+        target_amount: goal.target_amount,
+        timeline: goal.timeline,
+        context
+      }
+    );
+
+    const messages = [
+      { role: 'system' as const, content: PromptTemplates.FINANCIAL_ADVISOR_SYSTEM },
+      { role: 'user' as const, content: prompt }
+    ];
+
+    const response = await aiClient.generateStructuredResponse(messages, {
+      type: "object",
+      properties: {
+        feasible: { type: "boolean" },
+        required_monthly_savings: { type: "number" },
+        recommendations: { type: "array", items: { type: "string" } },
+        timeline_adjustment: { type: "string" }
+      }
+    });
+
+    return response;
+  }
+}
+```
+
+## API Routes
+
+### AI Chat Endpoint
+```typescript
+// app/api/ai/chat/route.ts
+import { NextRequest } from 'next/server';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { aiClient } from '@/lib/ai/openai';
+import { ContextBuilder } from '@/lib/ai/context';
+import { PromptTemplates } from '@/lib/ai/prompts';
+import { successResponse, errorResponse, unauthorizedResponse } from '@/lib/utils/api-response';
+
+export async function POST(request: NextRequest) {
+  try {
+    const supabase = createServerSupabaseClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return unauthorizedResponse();
+    }
+
+    const { message, clientId, sessionId } = await request.json();
+
+    if (!message || !clientId) {
+      return errorResponse('Message and client ID are required', 400);
+    }
+
+    // Build client context
+    const context = await ContextBuilder.buildClientContext(clientId, supabase);
+
+    // Prepare messages for AI
+    const messages = [
+      { role: 'system' as const, content: PromptTemplates.FINANCIAL_ADVISOR_SYSTEM },
+      { 
+        role: 'user' as const, 
+        content: `Client Context: ${JSON.stringify(context, null, 2)}\n\nQuestion: ${message}` 
+      }
+    ];
+
+    // Generate AI response
+    const aiResponse = await aiClient.generateResponse(messages);
+
+    // Save to chat history
+    const chatEntry = {
+      client_id: clientId,
+      user_id: user.id,
+      session_id: sessionId || crypto.randomUUID(),
+      message_type: 'user',
+      message_content: message,
+      context_data: context
+    };
+
+    await supabase.from('ai_chat_history').insert([
+      chatEntry,
+      {
+        ...chatEntry,
+        message_type: 'assistant',
+        message_content: aiResponse
+      }
+    ]);
+
+    return successResponse({
+      response: aiResponse,
+      session_id: chatEntry.session_id
+    });
+
+  } catch (error) {
+    console.error('AI chat error:', error);
+    return errorResponse('Failed to process AI request', 500);
+  }
+}
+```
+
+### Portfolio Analysis Endpoint
+```typescript
+// app/api/ai/analyze/route.ts
+import { NextRequest } from 'next/server';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { PortfolioAnalyzer } from '@/lib/ai/portfolio';
+import { ContextBuilder } from '@/lib/ai/context';
+import { successResponse, errorResponse, unauthorizedResponse } from '@/lib/utils/api-response';
+
+export async function POST(request: NextRequest) {
+  try {
+    const supabase = createServerSupabaseClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return unauthorizedResponse();
+    }
+
+    const { clientId, analysisType = 'full' } = await request.json();
+
+    if (!clientId) {
+      return errorResponse('Client ID is required', 400);
+    }
+
+    // Build context and analyze
+    const context = await ContextBuilder.buildClientContext(clientId, supabase);
+    
+    let results;
+    switch (analysisType) {
+      case 'portfolio':
+        results = await PortfolioAnalyzer.analyzePortfolio(context);
+        break;
+      case 'rebalancing':
+        results = await PortfolioAnalyzer.suggestRebalancing(context);
+        break;
+      default:
+        results = await PortfolioAnalyzer.analyzePortfolio(context);
+    }
+
+    return successResponse({
+      analysis: results,
+      context_snapshot: context
+    });
+
+  } catch (error) {
+    console.error('Portfolio analysis error:', error);
+    return errorResponse('Failed to analyze portfolio', 500);
+  }
+}
+```
+
+### Scenario Planning Endpoint
+```typescript
+// app/api/ai/scenarios/route.ts
+import { NextRequest } from 'next/server';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { ScenarioPlanner } from '@/lib/ai/scenarios';
+import { ContextBuilder } from '@/lib/ai/context';
+import { successResponse, errorResponse, unauthorizedResponse } from '@/lib/utils/api-response';
+
+export async function POST(request: NextRequest) {
+  try {
+    const supabase = createServerSupabaseClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return unauthorizedResponse();
+    }
+
+    const { clientId, scenario } = await request.json();
+
+    if (!clientId || !scenario) {
+      return errorResponse('Client ID and scenario are required', 400);
+    }
+
+    const context = await ContextBuilder.buildClientContext(clientId, supabase);
+    const result = await ScenarioPlanner.planScenario(context, scenario);
+
+    return successResponse({
+      scenario_result: result,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Scenario planning error:', error);
+    return errorResponse('Failed to plan scenario', 500);
+  }
+}
+```
+
+## Chat Session Management
+
+### Session Manager
+```typescript
+// lib/ai/sessions.ts
+export class SessionManager {
+  static async createSession(
+    clientId: string,
+    advisorId: string,
+    supabase: any
+  ): Promise<string> {
+    const sessionId = crypto.randomUUID();
+    
+    await supabase.from('ai_chat_sessions').insert({
+      id: sessionId,
+      client_id: clientId,
+      advisor_id: advisorId,
+      created_at: new Date().toISOString()
+    });
+
+    return sessionId;
+  }
+
+  static async getSessionHistory(
+    sessionId: string,
+    supabase: any
+  ): Promise<AIMessage[]> {
+    const { data } = await supabase
+      .from('ai_chat_history')
+      .select('*')
+      .eq('session_id', sessionId)
+      .order('created_at', { ascending: true });
+
+    return data || [];
+  }
+
+  static async endSession(sessionId: string, supabase: any): Promise<void> {
+    await supabase
+      .from('ai_chat_sessions')
+      .update({ ended_at: new Date().toISOString() })
+      .eq('id', sessionId);
+  }
+}
+```
+
+## Error Handling & Monitoring
+
+### AI Error Handler
+```typescript
+// lib/ai/error-handler.ts
+export class AIErrorHandler {
+  static handleOpenAIError(error: any): string {
+    if (error.code === 'rate_limit_exceeded') {
+      return 'I\'m currently experiencing high demand. Please try again in a moment.';
+    }
+    
+    if (error.code === 'context_length_exceeded') {
+      return 'The conversation has become too long. Let\'s start a new session to continue.';
+    }
+    
+    if (error.code === 'invalid_request_error') {
+      return 'I encountered an issue processing your request. Could you please rephrase your question?';
+    }
+    
+    return 'I\'m temporarily unavailable. Please try again shortly.';
+  }
+
+  static logAIInteraction(
+    type: 'chat' | 'analysis' | 'scenario',
+    clientId: string,
+    success: boolean,
+    tokensUsed?: number,
+    error?: any
+  ): void {
+    console.log(`AI ${type} interaction:`, {
+      client_id: clientId,
+      success,
+      tokens_used: tokensUsed,
+      error: error?.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+}
+```
+
+## Performance & Optimization
+
+### Caching Strategy
+```typescript
+// lib/ai/cache.ts
+import { unstable_cache } from 'next/cache';
+
+export const getCachedPortfolioAnalysis = unstable_cache(
+  async (clientId: string, portfolioHash: string) => {
+    // Cache expensive portfolio analysis
+    // Invalidate when portfolio changes
+  },
+  ['portfolio-analysis'],
+  {
+    revalidate: 3600, // 1 hour
+    tags: ['portfolio', 'ai-analysis']
+  }
+);
+
+export const getCachedClientContext = unstable_cache(
+  async (clientId: string) => {
+    // Cache client context building
+  },
+  ['client-context'],
+  {
+    revalidate: 300, // 5 minutes
+    tags: ['client-data']
+  }
+);
+```
+
+## Development Guidelines
+
+### AI Integration Best Practices
+1. **Context Management**: Always include relevant client context
+2. **Error Handling**: Graceful fallbacks for AI failures
+3. **Response Validation**: Validate AI responses before sending to client
+4. **Performance**: Cache expensive operations and context building
+5. **Security**: Never expose sensitive API keys or raw context
+6. **Monitoring**: Log AI interactions for debugging and optimization
+
+### Testing AI Components
+```typescript
+// __tests__/ai/portfolio.test.ts
+import { PortfolioAnalyzer } from '@/lib/ai/portfolio';
+import { mockClientContext } from '../mocks/ai';
+
+describe('PortfolioAnalyzer', () => {
+  it('provides actionable portfolio insights', async () => {
+    const insights = await PortfolioAnalyzer.analyzePortfolio(mockClientContext);
+    
+    expect(insights).toHaveLength(expect.any(Number));
+    expect(insights[0]).toMatchObject({
+      type: expect.any(String),
+      title: expect.any(String),
+      priority: expect.stringMatching(/low|medium|high/)
+    });
+  });
+});
+```
+
+This comprehensive AI engine provides intelligent financial advisory capabilities while maintaining type safety, performance, and reliability in your Next.js TypeScript application.

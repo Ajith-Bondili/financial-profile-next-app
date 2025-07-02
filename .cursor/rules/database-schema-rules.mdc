@@ -1,0 +1,543 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Database Schema & Supabase Integration Rules
+
+## Database Design Principles
+
+### Supabase PostgreSQL Schema
+- Use UUID for primary keys where appropriate
+- Implement Row Level Security (RLS) for all tables
+- Add audit fields (created_at, updated_at) to all tables
+- Use proper foreign key constraints and indexes
+- Follow PostgreSQL naming conventions (snake_case)
+
+## Core Tables Structure
+
+### 1. Users Table (Advisors)
+```sql
+-- Enable UUID extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email VARCHAR(255) UNIQUE NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    role VARCHAR(50) DEFAULT 'advisor',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- RLS Policies
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own profile" ON users
+    FOR SELECT USING (auth.uid() = id);
+
+CREATE POLICY "Users can update own profile" ON users
+    FOR UPDATE USING (auth.uid() = id);
+```
+
+### 2. Clients Table
+```sql
+CREATE TABLE clients (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    advisor_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255),
+    phone VARCHAR(50),
+    date_of_birth DATE,
+    risk_tolerance VARCHAR(50) DEFAULT 'moderate',
+    annual_income DECIMAL(12,2),
+    net_worth DECIMAL(12,2),
+    financial_goals TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes
+CREATE INDEX idx_clients_advisor_id ON clients(advisor_id);
+CREATE INDEX idx_clients_name ON clients(name);
+
+-- RLS Policies
+ALTER TABLE clients ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Advisors can manage their clients" ON clients
+    FOR ALL USING (advisor_id = auth.uid());
+```
+
+### 3. Assets Table
+```sql
+CREATE TABLE assets (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    client_id UUID REFERENCES clients(id) ON DELETE CASCADE,
+    asset_type VARCHAR(50) NOT NULL, -- 'residence', 'rrsp', 'tfsa', 'investment', 'savings'
+    asset_category VARCHAR(50), -- 'real_estate', 'retirement', 'investment', 'cash'
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    current_value DECIMAL(12,2) NOT NULL,
+    purchase_price DECIMAL(12,2),
+    purchase_date DATE,
+    growth_rate DECIMAL(5,2) DEFAULT 0, -- Annual percentage
+    projection_years INTEGER DEFAULT 10,
+    is_liquid BOOLEAN DEFAULT true,
+    maturity_date DATE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes
+CREATE INDEX idx_assets_client_id ON assets(client_id);
+CREATE INDEX idx_assets_type ON assets(asset_type);
+CREATE INDEX idx_assets_category ON assets(asset_category);
+
+-- RLS Policies
+ALTER TABLE assets ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Advisors can manage client assets" ON assets
+    FOR ALL USING (
+        client_id IN (
+            SELECT id FROM clients WHERE advisor_id = auth.uid()
+        )
+    );
+```
+
+### 4. Liabilities Table
+```sql
+CREATE TABLE liabilities (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    client_id UUID REFERENCES clients(id) ON DELETE CASCADE,
+    liability_type VARCHAR(50) NOT NULL, -- 'mortgage', 'loan', 'credit_card', 'line_of_credit'
+    name VARCHAR(255) NOT NULL,
+    current_balance DECIMAL(12,2) NOT NULL,
+    original_amount DECIMAL(12,2),
+    interest_rate DECIMAL(5,2),
+    monthly_payment DECIMAL(8,2),
+    maturity_date DATE,
+    is_secured BOOLEAN DEFAULT false,
+    collateral_asset_id UUID REFERENCES assets(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes
+CREATE INDEX idx_liabilities_client_id ON liabilities(client_id);
+CREATE INDEX idx_liabilities_type ON liabilities(liability_type);
+
+-- RLS Policies
+ALTER TABLE liabilities ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Advisors can manage client liabilities" ON liabilities
+    FOR ALL USING (
+        client_id IN (
+            SELECT id FROM clients WHERE advisor_id = auth.uid()
+        )
+    );
+```
+
+### 5. Income Sources Table
+```sql
+CREATE TABLE income_sources (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    client_id UUID REFERENCES clients(id) ON DELETE CASCADE,
+    source_type VARCHAR(50) NOT NULL, -- 'salary', 'business', 'investment', 'pension', 'other'
+    name VARCHAR(255) NOT NULL,
+    annual_amount DECIMAL(10,2) NOT NULL,
+    monthly_amount DECIMAL(10,2),
+    is_active BOOLEAN DEFAULT true,
+    start_date DATE,
+    end_date DATE,
+    growth_rate DECIMAL(5,2) DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes
+CREATE INDEX idx_income_sources_client_id ON income_sources(client_id);
+CREATE INDEX idx_income_sources_type ON income_sources(source_type);
+
+-- RLS Policies
+ALTER TABLE income_sources ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Advisors can manage client income" ON income_sources
+    FOR ALL USING (
+        client_id IN (
+            SELECT id FROM clients WHERE advisor_id = auth.uid()
+        )
+    );
+```
+
+### 6. Expenses Table
+```sql
+CREATE TABLE expenses (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    client_id UUID REFERENCES clients(id) ON DELETE CASCADE,
+    expense_type VARCHAR(50) NOT NULL, -- 'housing', 'transportation', 'food', 'healthcare', 'entertainment', 'other'
+    name VARCHAR(255) NOT NULL,
+    monthly_amount DECIMAL(8,2) NOT NULL,
+    annual_amount DECIMAL(10,2),
+    is_fixed BOOLEAN DEFAULT true,
+    is_essential BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes
+CREATE INDEX idx_expenses_client_id ON expenses(client_id);
+CREATE INDEX idx_expenses_type ON expenses(expense_type);
+
+-- RLS Policies
+ALTER TABLE expenses ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Advisors can manage client expenses" ON expenses
+    FOR ALL USING (
+        client_id IN (
+            SELECT id FROM clients WHERE advisor_id = auth.uid()
+        )
+    );
+```
+
+### 7. Financial Goals Table
+```sql
+CREATE TABLE financial_goals (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    client_id UUID REFERENCES clients(id) ON DELETE CASCADE,
+    goal_type VARCHAR(50) NOT NULL, -- 'retirement', 'home_purchase', 'education', 'emergency_fund', 'vacation', 'other'
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    target_amount DECIMAL(12,2) NOT NULL,
+    current_amount DECIMAL(12,2) DEFAULT 0,
+    target_date DATE,
+    priority_level INTEGER DEFAULT 3, -- 1-5 scale
+    is_achieved BOOLEAN DEFAULT false,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes
+CREATE INDEX idx_financial_goals_client_id ON financial_goals(client_id);
+CREATE INDEX idx_financial_goals_type ON financial_goals(goal_type);
+
+-- RLS Policies
+ALTER TABLE financial_goals ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Advisors can manage client goals" ON financial_goals
+    FOR ALL USING (
+        client_id IN (
+            SELECT id FROM clients WHERE advisor_id = auth.uid()
+        )
+    );
+```
+
+### 8. Portfolio Snapshots Table (for historical tracking)
+```sql
+CREATE TABLE portfolio_snapshots (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    client_id UUID REFERENCES clients(id) ON DELETE CASCADE,
+    snapshot_date DATE NOT NULL,
+    total_assets DECIMAL(12,2) NOT NULL,
+    total_liabilities DECIMAL(12,2) NOT NULL,
+    net_worth DECIMAL(12,2) NOT NULL,
+    monthly_income DECIMAL(10,2),
+    monthly_expenses DECIMAL(10,2),
+    monthly_surplus DECIMAL(10,2),
+    risk_score DECIMAL(3,1),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes
+CREATE INDEX idx_portfolio_snapshots_client_id ON portfolio_snapshots(client_id);
+CREATE INDEX idx_portfolio_snapshots_date ON portfolio_snapshots(snapshot_date);
+
+-- RLS Policies
+ALTER TABLE portfolio_snapshots ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Advisors can view client snapshots" ON portfolio_snapshots
+    FOR SELECT USING (
+        client_id IN (
+            SELECT id FROM clients WHERE advisor_id = auth.uid()
+        )
+    );
+```
+
+### 9. AI Chat History Table
+```sql
+CREATE TABLE ai_chat_history (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    client_id UUID REFERENCES clients(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    message_type VARCHAR(20) NOT NULL, -- 'user' or 'assistant'
+    message_content TEXT NOT NULL,
+    context_data JSONB, -- Store relevant financial context
+    session_id UUID,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes
+CREATE INDEX idx_ai_chat_client_id ON ai_chat_history(client_id);
+CREATE INDEX idx_ai_chat_session_id ON ai_chat_history(session_id);
+CREATE INDEX idx_ai_chat_created_at ON ai_chat_history(created_at);
+
+-- RLS Policies
+ALTER TABLE ai_chat_history ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Advisors can access client chat history" ON ai_chat_history
+    FOR ALL USING (user_id = auth.uid());
+```
+
+## Database Functions
+
+### 1. Calculate Portfolio Totals
+```sql
+CREATE OR REPLACE FUNCTION calculate_portfolio_totals(client_uuid UUID)
+RETURNS TABLE (
+    total_assets DECIMAL,
+    total_liabilities DECIMAL,
+    net_worth DECIMAL,
+    projected_assets DECIMAL,
+    projected_growth DECIMAL
+) AS $$
+BEGIN
+    RETURN QUERY
+    WITH asset_totals AS (
+        SELECT 
+            COALESCE(SUM(current_value), 0) as current_assets,
+            COALESCE(SUM(
+                current_value * POWER(1 + (growth_rate / 100), projection_years)
+            ), 0) as future_assets
+        FROM assets 
+        WHERE client_id = client_uuid
+    ),
+    liability_totals AS (
+        SELECT COALESCE(SUM(current_balance), 0) as current_liabilities
+        FROM liabilities 
+        WHERE client_id = client_uuid
+    )
+    SELECT 
+        at.current_assets,
+        lt.current_liabilities,
+        at.current_assets - lt.current_liabilities,
+        at.future_assets,
+        at.future_assets - at.current_assets
+    FROM asset_totals at, liability_totals lt;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 2. Calculate Monthly Cash Flow
+```sql
+CREATE OR REPLACE FUNCTION calculate_monthly_cash_flow(client_uuid UUID)
+RETURNS TABLE (
+    monthly_income DECIMAL,
+    monthly_expenses DECIMAL,
+    monthly_surplus DECIMAL
+) AS $$
+BEGIN
+    RETURN QUERY
+    WITH income_total AS (
+        SELECT COALESCE(SUM(monthly_amount), 0) as total_income
+        FROM income_sources 
+        WHERE client_id = client_uuid AND is_active = true
+    ),
+    expense_total AS (
+        SELECT COALESCE(SUM(monthly_amount), 0) as total_expenses
+        FROM expenses 
+        WHERE client_id = client_uuid
+    )
+    SELECT 
+        it.total_income,
+        et.total_expenses,
+        it.total_income - et.total_expenses
+    FROM income_total it, expense_total et;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 3. Update Timestamps Trigger
+```sql
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Apply to all relevant tables
+CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_clients_updated_at BEFORE UPDATE ON clients
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_assets_updated_at BEFORE UPDATE ON assets
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Add similar triggers for other tables...
+```
+
+## Views for Common Queries
+
+### 1. Client Portfolio Summary View
+```sql
+CREATE VIEW client_portfolio_summary AS
+SELECT 
+    c.id as client_id,
+    c.name as client_name,
+    c.advisor_id,
+    totals.total_assets,
+    totals.total_liabilities,
+    totals.net_worth,
+    totals.projected_assets,
+    totals.projected_growth,
+    cash_flow.monthly_income,
+    cash_flow.monthly_expenses,
+    cash_flow.monthly_surplus
+FROM clients c
+CROSS JOIN LATERAL calculate_portfolio_totals(c.id) totals
+CROSS JOIN LATERAL calculate_monthly_cash_flow(c.id) cash_flow;
+```
+
+### 2. Asset Allocation View
+```sql
+CREATE VIEW asset_allocation AS
+SELECT 
+    client_id,
+    asset_category,
+    COUNT(*) as asset_count,
+    SUM(current_value) as total_value,
+    ROUND(
+        (SUM(current_value) / SUM(SUM(current_value)) OVER (PARTITION BY client_id)) * 100, 
+        2
+    ) as percentage
+FROM assets
+GROUP BY client_id, asset_category;
+```
+
+## Supabase Integration
+
+### Authentication Setup
+```sql
+-- Create user profile trigger
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO public.users (id, email, name)
+    VALUES (new.id, new.email, COALESCE(new.raw_user_meta_data->>'name', new.email));
+    RETURN new;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Trigger for new user creation
+CREATE TRIGGER on_auth_user_created
+    AFTER INSERT ON auth.users
+    FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+```
+
+### Real-time Subscriptions
+```javascript
+// Subscribe to client portfolio changes
+const subscription = supabase
+  .channel('portfolio_changes')
+  .on(
+    'postgres_changes',
+    {
+      event: '*',
+      schema: 'public',
+      table: 'assets',
+      filter: `client_id=eq.${clientId}`
+    },
+    (payload) => {
+      // Handle real-time updates
+      console.log('Asset updated:', payload);
+    }
+  )
+  .subscribe();
+```
+
+### Storage Buckets
+```sql
+-- Create storage bucket for documents
+INSERT INTO storage.buckets (id, name, public) 
+VALUES ('financial-documents', 'financial-documents', false);
+
+-- Storage policies
+CREATE POLICY "Advisors can upload client documents" 
+ON storage.objects FOR INSERT 
+WITH CHECK (
+    bucket_id = 'financial-documents' 
+    AND auth.uid()::text = (storage.foldername(name))[1]
+);
+
+CREATE POLICY "Advisors can view client documents" 
+ON storage.objects FOR SELECT 
+USING (
+    bucket_id = 'financial-documents' 
+    AND auth.uid()::text = (storage.foldername(name))[1]
+);
+```
+
+## Data Migration & Seeding
+
+### Sample Data for Development
+```sql
+-- Insert sample advisor
+INSERT INTO users (id, email, name, role) VALUES
+('550e8400-e29b-41d4-a716-446655440000', 'advisor@friedmannai.com', 'John Advisor', 'advisor');
+
+-- Insert sample client
+INSERT INTO clients (advisor_id, name, email, annual_income, risk_tolerance) VALUES
+('550e8400-e29b-41d4-a716-446655440000', 'Jane Smith', 'jane@example.com', 75000, 'moderate');
+
+-- Insert sample assets (using the client_id from above)
+INSERT INTO assets (client_id, asset_type, name, current_value, growth_rate) VALUES
+((SELECT id FROM clients WHERE email = 'jane@example.com'), 'residence', 'Primary Residence', 620000, 4.2),
+((SELECT id FROM clients WHERE email = 'jane@example.com'), 'rrsp', 'RRSP', 52000, 7.0);
+```
+
+## Performance Optimization
+
+### Indexing Strategy
+- Primary keys (UUID) automatically indexed
+- Foreign keys indexed for joins
+- Frequently queried columns (client_id, asset_type, etc.)
+- Composite indexes for complex queries
+- Partial indexes for filtered queries
+
+### Query Optimization
+- Use views for complex aggregations
+- Implement database-level calculations
+- Cache frequently accessed portfolio summaries
+- Use connection pooling
+- Regular ANALYZE and VACUUM operations
+
+## Backup & Recovery
+
+### Supabase Backup Strategy
+- Automatic daily backups (Supabase Pro)
+- Point-in-time recovery
+- Export critical data regularly
+- Test restore procedures
+- Document recovery workflows
+
+## Security Considerations
+
+### Row Level Security (RLS)
+- All tables have RLS enabled
+- Policies enforce advisor-client boundaries
+- No cross-advisor data access
+- Secure API endpoints through RLS
+
+### Data Encryption
+- Encryption at rest (Supabase default)
+- Encryption in transit (HTTPS/TLS)
+- Sensitive data hashing where appropriate
+- Secure environment variables
+
+### Compliance
+- Financial data privacy requirements
+- GDPR compliance for international clients
+- Data retention policies
+- Audit trail maintenance 

@@ -1,0 +1,265 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Frontend Component Development Rules
+
+## Component Architecture
+
+### Directory Structure
+```
+/app/components/
+├── ui/              # Reusable UI components
+│   ├── Button.tsx
+│   ├── Input.tsx
+│   ├── Modal.tsx
+│   └── Card.tsx
+├── charts/          # Chart components
+│   ├── GrowthChart.tsx
+│   ├── MetricsCard.tsx
+│   └── ProjectionSlider.tsx
+├── forms/           # Form components
+│   ├── AssetForm.tsx
+│   ├── ClientForm.tsx
+│   └── EditableField.tsx
+├── layout/          # Layout components
+│   ├── Sidebar.tsx
+│   ├── Header.tsx
+│   └── Dashboard.tsx
+└── ai/              # AI-related components
+    ├── ChatInterface.tsx
+    ├── MessageBubble.tsx
+    └── ContextPanel.tsx
+```
+
+## Component Design Patterns
+
+### 1. AssetCard Component
+```typescript
+interface AssetCardProps {
+  asset: {
+    id: string
+    name: string
+    type: 'residence' | 'rrsp' | 'investment'
+    currentValue: number
+    futureValue: number
+    growthRate: number
+    projectionYears: number
+  }
+  onUpdate: (assetId: string, updates: Partial<Asset>) => void
+}
+```
+
+**Features:**
+- Interactive growth rate slider
+- Projection years slider
+- Real-time chart updates
+- Editable current value
+- Color-coded growth indicators
+
+### 2. SummaryMetrics Component
+```typescript
+interface SummaryMetricsProps {
+  totalCurrentValue: number
+  totalFutureValue: number
+  totalProjectedGrowth: number
+  growthRate: number
+}
+```
+
+**Features:**
+- Large, prominent numbers
+- Color-coded positive/negative values
+- Percentage and dollar displays
+- Responsive grid layout
+
+### 3. GrowthChart Component
+```typescript
+interface GrowthChartProps {
+  data: Array<{
+    year: number
+    currentValue: number
+    futureValue: number
+  }>
+  height?: number
+  showControls?: boolean
+}
+```
+
+**Features:**
+- Recharts line chart
+- Dual lines (current vs future value)
+- Interactive tooltips
+- Responsive design
+- Time axis (1Y, 2Y, 5Y, 10Y)
+
+### 4. EditableField Component
+```typescript
+interface EditableFieldProps {
+  value: number | string
+  type: 'currency' | 'percentage' | 'text'
+  onSave: (value: any) => void
+  placeholder?: string
+  validation?: (value: any) => boolean
+}
+```
+
+**Features:**
+- Click to edit
+- Format validation
+- Auto-save on blur
+- Currency formatting
+- Error states
+
+## Styling Guidelines
+
+### Color Scheme
+```css
+:root {
+  --financial-green: #10b981
+  --financial-blue: #3b82f6
+  --financial-orange: #f59e0b
+  --financial-red: #ef4444
+  --financial-gray: #6b7280
+  --financial-light-gray: #f3f4f6
+}
+```
+
+### Component Styling Standards
+- Use Tailwind utility classes
+- Consistent spacing (padding/margin multiples of 4)
+- Professional shadows and borders
+- Hover states for interactive elements
+- Loading states for async operations
+
+### Responsive Design
+- Mobile-first approach
+- Card components stack on mobile
+- Sidebar collapses on small screens
+- Charts maintain aspect ratio
+- Touch-friendly interface elements
+
+## State Management
+
+### Client State (React State)
+- Form inputs
+- UI states (modals, dropdowns)
+- Temporary edits before save
+- Chart interactions
+
+### Server State (React Query/SWR)
+- Financial data
+- Client information
+- Asset details
+- AI chat history
+
+### Form Handling
+- Use React Hook Form
+- Zod validation schemas
+- Optimistic updates
+- Error boundaries
+
+## Chart Implementation
+
+### Recharts Configuration
+```typescript
+const chartConfig = {
+  responsive: true,
+  margin: { top: 20, right: 30, left: 20, bottom: 5 },
+  colors: {
+    current: '#6b7280',
+    future: '#10b981',
+    projection: '#3b82f6'
+  }
+}
+```
+
+### Interactive Features
+- Brush selection for time ranges
+- Tooltip with detailed information
+- Click events for data exploration
+- Zoom and pan capabilities
+- Export functionality
+
+## Accessibility
+
+### ARIA Labels
+- All interactive elements labeled
+- Chart data announced to screen readers
+- Form validation messages
+- Loading states communicated
+
+### Keyboard Navigation
+- Tab order follows logical flow
+- Enter/Space for button activation
+- Escape to close modals
+- Arrow keys for slider controls
+
+### Visual Design
+- High contrast ratios
+- Focus indicators
+- Clear error messages
+- Consistent iconography
+
+## Performance Optimization
+
+### Component Optimization
+- React.memo for expensive renders
+- useMemo for complex calculations
+- useCallback for event handlers
+- Lazy loading for charts
+
+### Bundle Optimization
+- Dynamic imports for heavy components
+- Tree shaking for unused chart features
+- Image optimization
+- Code splitting by route
+
+## Error Handling
+
+### Error Boundaries
+```typescript
+class ChartErrorBoundary extends React.Component {
+  // Handle chart rendering errors
+  // Fallback to simple metric display
+}
+```
+
+### Validation
+- Client-side form validation
+- API error handling
+- Network error states
+- Graceful degradation
+
+## Testing Strategy
+
+### Component Tests
+- Render tests with mock data
+- Interaction tests (clicks, form inputs)
+- Chart data display verification
+- Accessibility testing
+
+### Integration Tests
+- Full form submission flows
+- Chart update scenarios
+- AI chat interactions
+- Authentication flows
+
+## Development Workflow
+
+### Component Creation Checklist
+1. [ ] TypeScript interface defined
+2. [ ] Responsive design implemented
+3. [ ] Accessibility features added
+4. [ ] Error states handled
+5. [ ] Loading states included
+6. [ ] Tests written
+7. [ ] Storybook story created (if applicable)
+
+### Code Review Focus
+- Component reusability
+- Performance implications
+- Accessibility compliance
+- TypeScript type safety
+- Responsive behavior 

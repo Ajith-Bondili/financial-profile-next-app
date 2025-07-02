@@ -1,0 +1,341 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Financial Profile Friedmann AI - Cursor Rules
+
+## Project Overview
+Lightweight hackathon version of Friedmann AI - a financial visualization tool for advisors to manage client portfolios with AI-powered insights.
+
+## Tech Stack
+- **Frontend & Backend**: Next.js 14+ (App Router), React, TypeScript, Tailwind CSS
+- **API**: Next.js API Routes (TypeScript)
+- **Charts**: Recharts (sleek financial visualizations)
+- **Database**: PostgreSQL via Supabase (with TypeScript client)
+- **Auth**: Supabase Auth (advisor-only for MVP)
+- **AI**: OpenAI API for portfolio Q&A and hypothetical scenarios
+- **Storage**: Supabase (PDF support)
+- **Deployment**: Vercel
+
+## Architecture Components
+```
+Frontend + Backend (Next.js + TypeScript)
+├── AI Sidebar (Chat Interface)
+├── Financial Inputs & Forms
+├── Interactive Charts/Graphs
+└── API Routes (/api/*)
+
+Auth Gateway (Supabase)
+├── Advisor Authentication
+└── Session Management
+
+Next.js API Routes
+├── CRUD Operations
+├── Financial Calculations
+└── AI Integration
+
+AI Engine (OpenAI)
+├── Portfolio Q&A
+├── Hypothetical Scenarios
+└── Database Context Retrieval
+
+Database (PostgreSQL/Supabase)
+├── Client Profiles
+├── Assets & Portfolios
+└── Financial Metrics
+
+File Storage (Supabase)
+└── PDF Documents
+```
+
+## Development Phases
+
+### Phase 1: Project Setup & Foundation
+1. Initialize Next.js project with TypeScript and Tailwind
+2. Set up Supabase project (database + auth)
+3. Create Next.js API routes structure
+4. Establish database schema for financial profiles
+5. Basic authentication flow
+
+### Phase 2: Core Financial Profile UI
+1. Dashboard layout with sidebar navigation
+2. Asset cards component (Primary Residence, RRSP, etc.)
+3. Summary metrics display (Total Current Value, Future Value, etc.)
+4. Interactive charts using Recharts
+5. Editable input fields with real-time updates
+
+### Phase 3: Database Integration & CRUD
+1. API routes for financial data CRUD
+2. Client profile management
+3. Asset management (create, read, update, delete)
+4. Financial calculations (growth projections, totals)
+5. Data persistence and validation
+
+### Phase 4: AI Chat Integration
+1. OpenAI API integration
+2. Chat interface component
+3. Database context retrieval for AI responses
+4. Hypothetical scenario handling ("Can I afford X?")
+5. Portfolio-specific Q&A functionality
+
+### Phase 5: Polish & Deployment
+1. UI/UX refinements
+2. Error handling and loading states
+3. Responsive design optimization
+4. Vercel deployment setup
+5. Final testing and demo preparation
+
+## UI Components (Based on Mockup)
+
+### Key Components to Build:
+- `AssetCard` - Individual asset containers with charts
+- `SummaryMetrics` - Top-level financial overview
+- `GrowthChart` - Interactive projection charts with sliders
+- `EditableField` - Inline editable financial values
+- `AISidebar` - Chat interface for portfolio Q&A
+- `AssetModal` - Detailed asset view/edit modal
+
+### Chart Types Needed:
+- Line charts for growth projections
+- Summary cards for key metrics
+- Interactive sliders for growth rate/projection years
+- Color-coded value displays (green for growth, etc.)
+
+## Database Schema (Core Tables)
+
+### clients
+- id, name, email, created_at, updated_at
+- advisor_id (foreign key)
+
+### assets
+- id, client_id, asset_type, name
+- current_value, purchase_price, growth_rate
+- projection_years, created_at, updated_at
+
+### portfolios
+- id, client_id, total_current_value
+- total_future_value, total_projected_growth
+- growth_rate_overall
+
+## Next.js API Routes Structure
+
+### Authentication
+- POST `/api/auth/login`
+- POST `/api/auth/logout`
+- GET `/api/auth/user`
+
+### Clients
+- GET `/api/clients`
+- POST `/api/clients`
+- GET `/api/clients/[id]`
+- PUT `/api/clients/[id]`
+- DELETE `/api/clients/[id]`
+
+### Assets
+- GET `/api/clients/[client_id]/assets`
+- POST `/api/clients/[client_id]/assets`
+- PUT `/api/assets/[id]`
+- DELETE `/api/assets/[id]`
+
+### AI Chat
+- POST `/api/ai/chat`
+- GET `/api/ai/context/[client_id]`
+
+## API Route Implementation Pattern
+
+### TypeScript Types (shared)
+```typescript
+export interface ApiResponse<T = any> {
+  success: boolean;
+  data?: T;
+  message?: string;
+  errors?: string[];
+}
+
+export interface Asset {
+  id: string;
+  client_id: string;
+  asset_type: 'residence' | 'rrsp' | 'tfsa' | 'investment' | 'savings';
+  name: string;
+  current_value: number;
+  purchase_price?: number;
+  growth_rate: number;
+  projection_years: number;
+  created_at: string;
+  updated_at: string;
+}
+```
+
+### API Route Structure
+```typescript
+// app/api/clients/[id]/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = createServerSupabaseClient();
+    
+    // Get authenticated user
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json(
+        { success: false, message: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    // Fetch client data with RLS
+    const { data, error } = await supabase
+      .from('clients')
+      .select('*')
+      .eq('id', params.id)
+      .single();
+
+    if (error) {
+      return NextResponse.json(
+        { success: false, message: 'Client not found' },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({ success: true, data });
+  } catch (error) {
+    return NextResponse.json(
+      { success: false, message: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+```
+
+## AI Integration Guidelines
+
+### Context Retrieval:
+- Pull client's current financial data using Supabase client
+- Include asset values, income, and projections
+- Format data for AI consumption
+
+### Supported Queries:
+- "Can I afford [item] based on my income?"
+- "What's my projected net worth in X years?"
+- "How does my portfolio compare to benchmarks?"
+- "What if I increase my RRSP contributions?"
+
+### Response Format:
+- Clear, advisor-friendly language
+- Include specific numbers from client data
+- Provide actionable insights
+
+## Coding Standards
+
+### File Structure:
+```
+/app
+  /(dashboard)
+    /clients
+    /assets
+    /ai-chat
+  /api
+    /auth
+    /clients
+      /[id]
+        /assets
+    /assets
+      /[id]
+    /ai
+      /chat
+      /context
+  /components
+    /ui
+    /charts
+    /forms
+  /lib
+    /supabase
+      /client.ts
+      /server.ts
+    /openai
+    /types
+  /types
+    /database.ts
+    /api.ts
+```
+
+### TypeScript Requirements:
+- Strict type checking enabled
+- Define interfaces for all data models
+- Use proper typing for API responses
+- Type AI chat messages and responses
+- Shared types between client and API routes
+
+### Component Guidelines:
+- Use React Server Components where possible
+- Client components only when interactivity needed
+- Proper error boundaries
+- Loading states for all async operations
+
+### API Route Guidelines:
+- Always validate authentication using Supabase
+- Use TypeScript for request/response typing
+- Implement proper error handling
+- Leverage Supabase RLS for data security
+- Return consistent API response format
+
+### Styling:
+- Tailwind CSS utility classes
+- Consistent color scheme (financial blue/green theme)
+- Professional, clean aesthetic
+- Mobile-responsive design
+
+## Security Considerations
+- Row Level Security (RLS) in Supabase
+- API key protection (environment variables)
+- Input validation and sanitization in API routes
+- Secure file upload handling
+- Authentication checks in all API routes
+
+## Testing Strategy
+- Component testing for UI elements
+- API route testing with Next.js test utilities
+- AI integration testing with mock responses
+- End-to-end user flow testing
+
+## Performance Optimization
+- Next.js Image optimization
+- Chart component lazy loading
+- API response caching using Next.js built-in features
+- Database query optimization
+- Server-side rendering for initial page loads
+
+## Environment Variables Needed:
+```
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+OPENAI_API_KEY=
+```
+
+## Demo Flow for Hackathon:
+1. Advisor login
+2. View existing client portfolio
+3. Edit asset values and see real-time chart updates
+4. Ask AI questions about client's financial situation
+5. Demonstrate hypothetical scenarios
+6. Show growth projections and key metrics
+
+## Development Priority:
+Focus on core financial visualization and AI chat functionality. Keep UI clean and professional. Prioritize working demo over perfect code for hackathon timeline.
+
+## Notes:
+- 2-3 day timeline - focus on MVP functionality
+- Use mock data initially for faster development
+- AI responses should feel knowledgeable about client's specific data
+- Charts should update in real-time as values change
+- Professional financial advisor aesthetic is crucial
+- All backend logic now handled within Next.js API routes
+- Simplified deployment with single TypeScript codebase 
+

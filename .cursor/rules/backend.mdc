@@ -1,0 +1,756 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Next.js TypeScript Backend Rules
+
+## Project Structure
+
+### App Router API Directory
+```
+/app
+├── api/                     # All API routes
+│   ├── auth/
+│   │   ├── login/route.ts
+│   │   ├── logout/route.ts
+│   │   └── user/route.ts
+│   ├── clients/
+│   │   ├── route.ts         # GET /api/clients, POST /api/clients
+│   │   └── [id]/
+│   │       ├── route.ts     # GET/PUT/DELETE /api/clients/[id]
+│   │       └── assets/
+│   │           └── route.ts # GET/POST /api/clients/[id]/assets
+│   ├── assets/
+│   │   └── [id]/
+│   │       └── route.ts     # GET/PUT/DELETE /api/assets/[id]
+│   └── ai/
+│       ├── chat/route.ts
+│       └── context/[client_id]/route.ts
+├── lib/
+│   ├── supabase/
+│   │   ├── client.ts        # Client-side Supabase
+│   │   ├── server.ts        # Server-side Supabase
+│   │   └── types.ts         # Generated types
+│   ├── openai.ts
+│   ├── validations/
+│   │   ├── client.ts
+│   │   └── asset.ts
+│   └── utils/
+│       ├── api-response.ts
+│       ├── calculations.ts
+│       └── auth.ts
+└── types/
+    ├── database.ts
+    └── api.ts
+```
+
+## Core TypeScript Types
+
+### Database Types
+```typescript
+// types/database.ts
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: 'advisor' | 'admin';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Client {
+  id: string;
+  advisor_id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  risk_tolerance: 'conservative' | 'moderate' | 'aggressive';
+  annual_income?: number;
+  net_worth?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Asset {
+  id: string;
+  client_id: string;
+  asset_type: 'residence' | 'rrsp' | 'tfsa' | 'investment' | 'savings';
+  name: string;
+  current_value: number;
+  purchase_price?: number;
+  growth_rate: number;
+  projection_years: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// Insert/Update types
+export type ClientInsert = Omit<Client, 'id' | 'created_at' | 'updated_at'>;
+export type AssetInsert = Omit<Asset, 'id' | 'created_at' | 'updated_at'>;
+export type ClientUpdate = Partial<ClientInsert>;
+export type AssetUpdate = Partial<AssetInsert>;
+```
+
+### API Response Types
+```typescript
+// types/api.ts
+export interface ApiResponse<T = any> {
+  success: boolean;
+  data?: T;
+  message?: string;
+  errors?: string[];
+}
+
+export interface ApiError {
+  success: false;
+  message: string;
+  errors?: string[];
+}
+```
+
+## Supabase Integration
+
+### Server-side Client
+```typescript
+// lib/supabase/server.ts
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
+
+export function createServerSupabaseClient() {
+  const cookieStore = cookies();
+
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value;
+        },
+        set(name: string, value: string, options: any) {
+          cookieStore.set({ name, value, ...options });
+        },
+        remove(name: string, options: any) {
+          cookieStore.set({ name, value: '', ...options });
+        },
+      },
+    }
+  );
+}
+```
+
+### Authentication Helper
+```typescript
+// lib/utils/auth.ts
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+
+export async function getAuthenticatedUser() {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error } = await supabase.auth.getUser();
+  
+  if (error || !user) {
+    return null;
+  }
+  
+  return user;
+}
+```
+
+## API Response Helpers
+
+### Response Utilities
+```typescript
+// lib/utils/api-response.ts
+import { NextResponse } from 'next/server';
+import { ApiResponse, ApiError } from '@/types/api';
+
+export function successResponse<T>(
+  data: T, 
+  message?: string
+): NextResponse<ApiResponse<T>> {
+  return NextResponse.json({
+    success: true,
+    data,
+    message
+  });
+}
+
+export function errorResponse(
+  message: string,
+  status: number = 400,
+  errors?: string[]
+): NextResponse<ApiError> {
+  return NextResponse.json(
+    { success: false, message, errors },
+    { status }
+  );
+}
+
+export function unauthorizedResponse() {
+  return errorResponse('Unauthorized', 401);
+}
+
+export function notFoundResponse(resource?: string) {
+  return errorResponse(
+    resource ? `${resource} not found` : 'Resource not found',
+    404
+  );
+}
+
+export function validationErrorResponse(errors: string[]) {
+  return errorResponse('Validation failed', 422, errors);
+}
+```
+
+## Input Validation
+
+### Zod Schemas
+```typescript
+// lib/validations/client.ts
+import { z } from 'zod';
+
+export const clientSchema = z.object({
+  name: z.string().min(1, 'Name is required').max(255),
+  email: z.string().email().optional().or(z.literal('')),
+  phone: z.string().max(50).optional(),
+  risk_tolerance: z.enum(['conservative', 'moderate', 'aggressive']).default('moderate'),
+  annual_income: z.number().positive().optional(),
+  net_worth: z.number().optional()
+});
+
+export function validateClientInput(input: unknown) {
+  const result = clientSchema.safeParse(input);
+  return {
+    success: result.success,
+    data: result.success ? result.data : null,
+    errors: result.success ? [] : result.error.errors.map(e => e.message)
+  };
+}
+```
+
+```typescript
+// lib/validations/asset.ts
+import { z } from 'zod';
+
+export const assetSchema = z.object({
+  asset_type: z.enum(['residence', 'rrsp', 'tfsa', 'investment', 'savings']),
+  name: z.string().min(1, 'Name is required').max(255),
+  current_value: z.number().positive('Current value must be positive'),
+  purchase_price: z.number().positive().optional(),
+  growth_rate: z.number().min(-100).max(100),
+  projection_years: z.number().int().min(1).max(50).default(10)
+});
+
+export function validateAssetInput(input: unknown) {
+  const result = assetSchema.safeParse(input);
+  return {
+    success: result.success,
+    data: result.success ? result.data : null,
+    errors: result.success ? [] : result.error.errors.map(e => e.message)
+  };
+}
+```
+
+## API Route Examples
+
+### Clients API Route
+```typescript
+// app/api/clients/route.ts
+import { NextRequest } from 'next/server';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { successResponse, errorResponse, unauthorizedResponse } from '@/lib/utils/api-response';
+import { validateClientInput } from '@/lib/validations/client';
+
+export async function GET() {
+  try {
+    const supabase = createServerSupabaseClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return unauthorizedResponse();
+    }
+
+    const { data, error } = await supabase
+      .from('clients')
+      .select('*, assets(id, asset_type, current_value)')
+      .eq('advisor_id', user.id)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      return errorResponse('Failed to fetch clients', 500);
+    }
+
+    return successResponse(data);
+  } catch (error) {
+    console.error('API error:', error);
+    return errorResponse('Internal server error', 500);
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const supabase = createServerSupabaseClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return unauthorizedResponse();
+    }
+
+    const body = await request.json();
+    const validation = validateClientInput(body);
+
+    if (!validation.success) {
+      return validationErrorResponse(validation.errors);
+    }
+
+    const { data, error } = await supabase
+      .from('clients')
+      .insert({ ...validation.data, advisor_id: user.id })
+      .select()
+      .single();
+
+    if (error) {
+      return errorResponse('Failed to create client', 500);
+    }
+
+    return successResponse(data, 'Client created successfully');
+  } catch (error) {
+    console.error('API error:', error);
+    return errorResponse('Internal server error', 500);
+  }
+}
+```
+
+### Individual Client Route
+```typescript
+// app/api/clients/[id]/route.ts
+import { NextRequest } from 'next/server';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { successResponse, errorResponse, unauthorizedResponse, notFoundResponse } from '@/lib/utils/api-response';
+import { validateClientInput } from '@/lib/validations/client';
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = createServerSupabaseClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return unauthorizedResponse();
+    }
+
+    const { data, error } = await supabase
+      .from('clients')
+      .select('*, assets(*)')
+      .eq('id', params.id)
+      .eq('advisor_id', user.id)
+      .single();
+
+    if (error || !data) {
+      return notFoundResponse('Client');
+    }
+
+    return successResponse(data);
+  } catch (error) {
+    console.error('API error:', error);
+    return errorResponse('Internal server error', 500);
+  }
+}
+
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = createServerSupabaseClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return unauthorizedResponse();
+    }
+
+    const body = await request.json();
+    const validation = validateClientInput(body);
+
+    if (!validation.success) {
+      return validationErrorResponse(validation.errors);
+    }
+
+    const { data, error } = await supabase
+      .from('clients')
+      .update(validation.data)
+      .eq('id', params.id)
+      .eq('advisor_id', user.id)
+      .select()
+      .single();
+
+    if (error || !data) {
+      return notFoundResponse('Client');
+    }
+
+    return successResponse(data, 'Client updated successfully');
+  } catch (error) {
+    console.error('API error:', error);
+    return errorResponse('Internal server error', 500);
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = createServerSupabaseClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return unauthorizedResponse();
+    }
+
+    const { error } = await supabase
+      .from('clients')
+      .delete()
+      .eq('id', params.id)
+      .eq('advisor_id', user.id);
+
+    if (error) {
+      return errorResponse('Failed to delete client', 500);
+    }
+
+    return successResponse(null, 'Client deleted successfully');
+  } catch (error) {
+    console.error('API error:', error);
+    return errorResponse('Internal server error', 500);
+  }
+}
+```
+
+### Assets Route
+```typescript
+// app/api/clients/[id]/assets/route.ts
+import { NextRequest } from 'next/server';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { successResponse, errorResponse, unauthorizedResponse, notFoundResponse } from '@/lib/utils/api-response';
+import { validateAssetInput } from '@/lib/validations/asset';
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = createServerSupabaseClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return unauthorizedResponse();
+    }
+
+    // Verify client ownership
+    const { data: client } = await supabase
+      .from('clients')
+      .select('id')
+      .eq('id', params.id)
+      .eq('advisor_id', user.id)
+      .single();
+
+    if (!client) {
+      return notFoundResponse('Client');
+    }
+
+    const { data, error } = await supabase
+      .from('assets')
+      .select('*')
+      .eq('client_id', params.id)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      return errorResponse('Failed to fetch assets', 500);
+    }
+
+    return successResponse(data);
+  } catch (error) {
+    console.error('API error:', error);
+    return errorResponse('Internal server error', 500);
+  }
+}
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = createServerSupabaseClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return unauthorizedResponse();
+    }
+
+    // Verify client ownership
+    const { data: client } = await supabase
+      .from('clients')
+      .select('id')
+      .eq('id', params.id)
+      .eq('advisor_id', user.id)
+      .single();
+
+    if (!client) {
+      return notFoundResponse('Client');
+    }
+
+    const body = await request.json();
+    const validation = validateAssetInput(body);
+
+    if (!validation.success) {
+      return validationErrorResponse(validation.errors);
+    }
+
+    const { data, error } = await supabase
+      .from('assets')
+      .insert({ ...validation.data, client_id: params.id })
+      .select()
+      .single();
+
+    if (error) {
+      return errorResponse('Failed to create asset', 500);
+    }
+
+    return successResponse(data, 'Asset created successfully');
+  } catch (error) {
+    console.error('API error:', error);
+    return errorResponse('Internal server error', 500);
+  }
+}
+```
+
+## Financial Calculations
+
+### Calculation Utilities
+```typescript
+// lib/utils/calculations.ts
+import { Asset } from '@/types/database';
+
+export function calculateFutureValue(
+  currentValue: number,
+  growthRate: number,
+  years: number
+): number {
+  return currentValue * Math.pow(1 + growthRate / 100, years);
+}
+
+export function calculatePortfolioTotals(assets: Asset[]) {
+  const totalCurrentValue = assets.reduce((sum, asset) => sum + asset.current_value, 0);
+  
+  const totalFutureValue = assets.reduce((sum, asset) => {
+    return sum + calculateFutureValue(
+      asset.current_value,
+      asset.growth_rate,
+      asset.projection_years
+    );
+  }, 0);
+
+  const totalProjectedGrowth = totalFutureValue - totalCurrentValue;
+
+  return {
+    totalCurrentValue,
+    totalFutureValue,
+    totalProjectedGrowth,
+    overallGrowthRate: totalCurrentValue > 0 
+      ? ((totalFutureValue / totalCurrentValue) ** (1 / 10) - 1) * 100 
+      : 0
+  };
+}
+```
+
+## AI Integration
+
+### OpenAI Service
+```typescript
+// lib/openai.ts
+import OpenAI from 'openai';
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+export async function generateFinancialInsight(
+  query: string,
+  clientContext: any
+): Promise<string> {
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4",
+      messages: [
+        {
+          role: "system",
+          content: "You are a professional financial advisor AI. Provide specific, actionable advice based on the client's financial profile."
+        },
+        {
+          role: "user",
+          content: `Client Profile: ${JSON.stringify(clientContext)}\n\nQuestion: ${query}`
+        }
+      ],
+      max_tokens: 500,
+      temperature: 0.7,
+    });
+
+    return completion.choices[0]?.message?.content || 'Unable to generate response';
+  } catch (error) {
+    console.error('OpenAI error:', error);
+    throw new Error('Failed to generate AI response');
+  }
+}
+```
+
+### AI Chat Route
+```typescript
+// app/api/ai/chat/route.ts
+import { NextRequest } from 'next/server';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { generateFinancialInsight } from '@/lib/openai';
+import { successResponse, errorResponse, unauthorizedResponse } from '@/lib/utils/api-response';
+
+export async function POST(request: NextRequest) {
+  try {
+    const supabase = createServerSupabaseClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return unauthorizedResponse();
+    }
+
+    const { message, clientId } = await request.json();
+
+    if (!message || !clientId) {
+      return errorResponse('Message and client ID are required', 400);
+    }
+
+    // Get client context
+    const { data: client, error: clientError } = await supabase
+      .from('clients')
+      .select('*, assets(*)')
+      .eq('id', clientId)
+      .eq('advisor_id', user.id)
+      .single();
+
+    if (clientError || !client) {
+      return errorResponse('Client not found', 404);
+    }
+
+    // Generate AI response
+    const aiResponse = await generateFinancialInsight(message, client);
+
+    return successResponse({ response: aiResponse });
+  } catch (error) {
+    console.error('AI chat error:', error);
+    return errorResponse('Failed to process AI request', 500);
+  }
+}
+```
+
+## Error Handling
+
+### Global Error Handler
+```typitten
+// lib/utils/error-handler.ts
+export class APIError extends Error {
+  constructor(
+    public message: string,
+    public statusCode: number = 500,
+    public errors?: string[]
+  ) {
+    super(message);
+    this.name = 'APIError';
+  }
+}
+
+export function handleAPIError(error: unknown) {
+  console.error('API Error:', error);
+  
+  if (error instanceof APIError) {
+    return {
+      success: false,
+      message: error.message,
+      errors: error.errors,
+      status: error.statusCode
+    };
+  }
+  
+  return {
+    success: false,
+    message: 'Internal server error',
+    status: 500
+  };
+}
+```
+
+## Development Best Practices
+
+### API Route Standards
+1. **Always validate authentication first**
+2. **Use TypeScript for all types**
+3. **Validate input with Zod schemas**
+4. **Handle errors consistently**
+5. **Use Supabase RLS for security**
+6. **Return standardized API responses**
+7. **Log errors for debugging**
+
+### Performance Optimizations
+- Use Next.js built-in caching
+- Optimize Supabase queries with select()
+- Implement request deduplication
+- Use server-side rendering when appropriate
+
+### Security Checklist
+- [ ] Authentication on all protected routes
+- [ ] Input validation on all POST/PUT requests
+- [ ] RLS policies enforced in database
+- [ ] Environment variables secured
+- [ ] Error messages don't leak sensitive data
+- [ ] Rate limiting implemented where needed
+
+### File Naming Conventions
+- API routes: `route.ts`
+- Utilities: kebab-case (`api-response.ts`)
+- Types: PascalCase interfaces
+- Validation: `validate[Entity]Input`
+
+### Quick Setup Commands
+```bash
+# Install dependencies
+npm install @supabase/ssr @supabase/supabase-js
+npm install zod
+npm install openai
+npm install -D @types/node
+
+# Environment variables needed
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+OPENAI_API_KEY=
+```
+
+## Testing
+
+### API Route Testing
+```typescript
+// __tests__/api/clients.test.ts
+import { createMocks } from 'node-mocks-http';
+import { GET } from '@/app/api/clients/route';
+
+describe('/api/clients', () => {
+  it('returns clients for authenticated user', async () => {
+    const { req } = createMocks({ method: 'GET' });
+    const response = await GET(req);
+    const data = await response.json();
+    
+    expect(data.success).toBe(true);
+    expect(Array.isArray(data.data)).toBe(true);
+  });
+});
+```
+
+This TypeScript-first approach eliminates the need for a separate Python FastAPI backend, making development faster and deployment simpler with a single Next.js codebase.
